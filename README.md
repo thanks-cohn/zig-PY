@@ -1,162 +1,198 @@
 # zig-PY
 
+zig-PY is a small Python package that proves one honest path: Python can build,
+load, and call a Zig function through a shared library.
+
+This repository is intentionally v0-sized. It is not a binding generator, not a
+package manager, and not a promise of features that do not run. Every command
+below is part of the working path.
+
+## What v0 does
+
+- Checks the local environment for Python, Zig, pytest, and platform details.
+- Compiles `examples/add/add.zig` into a platform shared library.
+- Loads that shared library from Python with `ctypes`.
+- Calls the exported Zig function `add(2, 3)` from Python.
+- Runs tests that verify the build, load, and call behavior.
+- Prints logs that say what is happening, which command ran, where output went,
+  and how to fix known failures.
+
+## What v0 does not do
+
+- No binding generator.
+- No package manager.
+- No decorators.
+- No Python-to-Zig type inference.
+- No broad architecture for features that do not exist yet.
+- No fake CLI commands beyond the working doctor and example build entry points.
+
+## Requirements
+
+- Python 3.9 or newer.
+- Zig installed and available as `zig` on `PATH`.
+- `pytest`, installed by the `dev` extra below.
+
+## Install from a fresh checkout
+
+```sh
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
 ```
 
+## Commands
 
-================================================================================
+### Check tools
 
-A Practical Bridge Between Python and Zig
-================================================================================
+```sh
+make doctor
+```
 
-Python has become one of the most important programming languages in existence.
+Expected successful output includes lines like:
 
-It powers scientific computing, machine learning, automation, data analysis,
-education, research, and a substantial portion of modern infrastructure.
+```text
+zig-PY INFO checking Python, Zig, pytest, and platform
+zig-PY OK python: Python 3.x.x at ...
+zig-PY OK zig: Zig ... at ...
+zig-PY OK pytest: pytest is importable
+zig-PY OK platform: ...
+zig-PY OK doctor completed successfully
+```
 
-Its success is well deserved.
+### Build the Zig add example
 
-Python allows people to express ideas quickly.
+```sh
+make build-example
+```
 
-The challenge is that many of the systems Python relies upon are implemented
-elsewhere.
+Expected successful output includes:
 
-Performance-critical libraries are often written in C, C++, Rust, CUDA, or
-other lower-level languages. Deployment frequently introduces complexity
-through virtual environments, dependency resolution, packaging concerns,
-platform differences, and native extensions.
+```text
+zig-PY INFO building Zig add example from .../examples/add/add.zig
+zig-PY INFO running command from ...: zig build-lib ...
+zig-PY INFO command output will be written to .../build/logs/add-build.log
+zig-PY OK built shared library at .../build/zig_py/add/libadd.so
+zig-PY OK build log written to .../build/logs/add-build.log
+```
 
-zig-py exists to reduce that friction.
+The exact library extension depends on the platform: `.so` on Linux, `.dylib`
+on macOS, and `.dll` on Windows.
 
-================================================================================
+### Run the example
 
-What Is zig-py?
+```sh
+python examples/add/run.py
+```
 
-zig-py is a bridge between Python and Zig.
+Expected successful output includes:
 
-It enables Python applications to use Zig naturally and enables Zig libraries
-to be exposed to Python naturally.
+```text
+zig-PY INFO running add example: Python will call Zig add(2, 3)
+zig-PY INFO loading Zig shared library from ...
+zig-PY OK loaded add(a: i32, b: i32) from ...
+zig-PY INFO Zig add(2, 3) returned 5
+zig-PY OK Python successfully called Zig: add(2, 3) == 5
+```
 
-The objective is straightforward:
+### Run tests
 
-Keep the Python ecosystem.
+```sh
+make test
+```
 
-Gain the benefits of Zig.
+Expected successful output includes:
 
-Avoid unnecessary rewrites.
+```text
+python -m pytest
+...
+5 passed
+```
 
-================================================================================
+### Run the full smoke path
 
-Design Principles
+```sh
+make smoke
+```
 
-1. Python First
+This cleans generated output, runs the doctor, builds the Zig shared library,
+runs the Python example, and runs the test suite.
 
-Existing Python projects should remain Python projects.
+Expected successful output ends with:
 
-zig-py should integrate into existing workflows rather than replacing them.
+```text
+zig-PY smoke: success - Python called Zig and tests passed
+```
 
-2. Incremental Adoption
+## Exit codes
 
-Developers should be able to introduce Zig gradually.
+zig-PY uses distinct exit codes for the working v0 path:
 
-One function.
+| Code | Meaning |
+| ---: | --- |
+| 0 | Success |
+| 10 | Missing Zig |
+| 11 | Missing Python dependency |
+| 20 | Zig build failure |
+| 30 | Shared library load failure |
+| 40 | Test or example failure |
 
-One module.
+## Troubleshooting
 
-One library.
+### `make doctor` reports missing Zig
 
-One service.
+Install Zig from <https://ziglang.org/download/> and make sure `zig version`
+works in the same shell where you run zig-PY commands.
 
-No large migrations required.
+### `make doctor` reports missing pytest
 
-3. Practical Compatibility
+Install the development dependencies from the repository root:
 
-The Python ecosystem represents decades of work.
+```sh
+pip install -e ".[dev]"
+```
 
-That investment should be preserved.
+### `make build-example` fails
 
-The goal is cooperation, not replacement.
+Open the build log printed by the command, usually:
 
-4. Explicit Ownership
+```text
+build/logs/add-build.log
+```
 
-Generated bindings, build steps, packaging, and deployment should remain
-understandable and inspectable.
+Fix the Zig compiler error shown there, then rerun:
 
-Developers should know what their software is doing.
+```sh
+make build-example
+```
 
-================================================================================
+### `python examples/add/run.py` cannot load the shared library
 
-Example
+Build the example first:
 
-Python:
+```sh
+make build-example
+python examples/add/run.py
+```
 
-    from search import fast_find
+If it still fails, confirm the shared library under `build/zig_py/add/` matches
+your operating system and CPU architecture.
 
-Zig:
+## The v0 Python-to-Zig path
 
-    pub fn fastFind(...) void
+The actual Zig function is intentionally tiny:
 
-zig-py generates and manages the interoperability layer.
+```zig
+export fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+```
 
-The Python developer uses Python.
+Python loads the compiled shared library with `ctypes`, declares the argument
+and return types as 32-bit integers, and calls `add(2, 3)`.
 
-The Zig developer uses Zig.
+## Next real v1 step
 
-Both work within the same project.
-
-================================================================================
-
-Potential Applications
-
-- AI and machine learning systems
-- Scientific computing
-- Data processing pipelines
-- High-performance APIs
-- Command-line applications
-- Desktop software
-- Automation tools
-- Embedded and edge deployments
-
-Any environment where Python's ecosystem is valuable and Zig's performance,
-portability, or reliability may provide advantages.
-
-================================================================================
-
-Long-Term Objectives
-
-Provide straightforward interoperability between Python and Zig.
-
-Simplify packaging and deployment of mixed-language projects.
-
-Reduce reliance on complex native extension workflows.
-
-Enable Python applications to adopt Zig incrementally where it provides clear
-benefits.
-
-Support a future where Python remains an excellent language for expression and
-experimentation while Zig provides a robust foundation for deployment,
-performance, and long-term maintenance.
-
-================================================================================
-
-Non-Goals
-
-zig-py is not an attempt to replace Python.
-
-zig-py is not an attempt to create a competing ecosystem.
-
-zig-py is not an attempt to force developers into a new workflow.
-
-The project exists to make two strong ecosystems work together more
-effectively.
-
-================================================================================
-
-The Idea
-
-Python has earned its place.
-
-Zig has earned attention.
-
-Developers should not have to choose between them.
-
-================================================================================```
+The next real step is a minimal explicit manifest for user-owned Zig functions:
+a small config file that names a Zig source file, exported function names, and
+ctypes-compatible signatures. That would keep v1 inspectable while allowing more
+than one hard-coded example.
