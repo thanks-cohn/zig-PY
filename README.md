@@ -1,5 +1,10 @@
 # zig-PY
 
+
+
+"Keep Python.Gain Zig."
+
+
 zig-PY is a small Python package that proves one honest path: Python can build,
 load, and call a Zig function through a shared library.
 
