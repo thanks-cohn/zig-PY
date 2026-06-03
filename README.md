@@ -65,18 +65,39 @@ zig-PY OK doctor completed successfully
 make build-example
 ```
 
+By default, v0 builds the example with Zig `ReleaseFast` optimization. This is
+the default because local example timings on Linux with Zig 0.16.0 showed that
+`ReleaseFast` kept the tiny v0 example build path interactive while other modes
+were much slower in that environment: `ReleaseSafe` around 49s, `Debug` around
+11s, `ReleaseSmall` around 6.5s, and `ReleaseFast` around 0.2s. These are
+example timings from one local machine, not a general speed claim.
+
+To request another Zig optimization mode directly, run:
+
+```sh
+PYTHONPATH=src python -m zig_py.build --example add --optimize ReleaseSafe
+```
+
+Supported modes are `Debug`, `ReleaseSafe`, `ReleaseFast`, and `ReleaseSmall`.
+Use `ReleaseSafe` when you want Zig's safety checks instead of the fastest v0
+default. Changing the optimization mode is part of the freshness check, so
+zig-PY rebuilds the shared library instead of reusing an older library compiled
+with a different mode.
+
 Expected successful output includes:
 
 ```text
 zig-PY INFO building Zig add example from .../examples/add/add.zig
-zig-PY INFO running command from ...: zig build-lib ...
+zig-PY INFO using Zig optimization mode: ReleaseFast
+zig-PY INFO running command from ...: zig build-lib ... -O ReleaseFast ...
 zig-PY INFO command output will be written to .../build/logs/add-build.log
 zig-PY OK built shared library at .../build/zig_py/add/libadd.so
 zig-PY OK build log written to .../build/logs/add-build.log
 ```
 
-The exact library extension depends on the platform: `.so` on Linux, `.dylib`
-on macOS, and `.dll` on Windows.
+A second build with the same source and optimization mode skips when the output
+is current. The exact library extension depends on the platform: `.so` on Linux,
+`.dylib` on macOS, and `.dll` on Windows.
 
 ### Run the example
 
@@ -105,7 +126,7 @@ Expected successful output includes:
 ```text
 python -m pytest
 ...
-5 passed
+11 passed
 ```
 
 ### Run the full smoke path

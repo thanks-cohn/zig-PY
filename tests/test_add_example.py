@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from zig_py import build as build_module
-from zig_py.build import build_add_example
+from zig_py.build import DEFAULT_OPTIMIZE_MODE, build_add_example
 from zig_py.loader import load_add_library
 
 
@@ -42,6 +42,39 @@ def isolated_build_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tup
     return source_path, build_root, log_root
 
 
+def test_default_build_uses_release_fast(
+    isolated_build_paths: tuple[Path, Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _source_path, _build_root, _log_root = isolated_build_paths
+    calls = _fake_successful_zig(monkeypatch)
+
+    result = build_add_example()
+
+    assert DEFAULT_OPTIMIZE_MODE == "ReleaseFast"
+    assert result.optimize_mode == "ReleaseFast"
+    assert "-O" in result.command
+    assert result.command[result.command.index("-O") + 1] == "ReleaseFast"
+    assert calls == [result.command]
+    log_text = result.log_path.read_text(encoding="utf-8")
+    assert "optimize_mode: ReleaseFast" in log_text
+
+
+def test_cli_optimize_flag_selects_requested_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    requested: dict[str, object] = {}
+
+    def fake_build_add_example(*, force: bool = False, optimize_mode: str = DEFAULT_OPTIMIZE_MODE) -> object:
+        requested["force"] = force
+        requested["optimize_mode"] = optimize_mode
+        return object()
+
+    monkeypatch.setattr(build_module, "build_add_example", fake_build_add_example)
+
+    exit_code = build_module.main(["--example", "add", "--optimize", "ReleaseSmall"])
+
+    assert exit_code == build_module.SUCCESS
+    assert requested == {"force": False, "optimize_mode": "ReleaseSmall"}
+
+
 def test_first_build_creates_shared_library(
     isolated_build_paths: tuple[Path, Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -54,7 +87,9 @@ def test_first_build_creates_shared_library(
     assert result.library_path.exists()
     assert calls == [result.command]
     assert "build executed" in result.log_path.read_text(encoding="utf-8")
-    assert "elapsed_seconds:" in result.log_path.read_text(encoding="utf-8")
+    log_text = result.log_path.read_text(encoding="utf-8")
+    assert "elapsed_seconds:" in log_text
+    assert "optimize_mode: ReleaseFast" in log_text
 
 
 def test_second_build_skips_when_output_is_current(
@@ -65,6 +100,9 @@ def test_second_build_skips_when_output_is_current(
     library_path = build_root / "add" / build_module.shared_library_name("add")
     library_path.parent.mkdir(parents=True)
     library_path.write_bytes(b"already built")
+    build_module._write_build_metadata(
+        build_module._metadata_path(library_path), source_path=source_path, optimize_mode="ReleaseFast"
+    )
     now = time.time()
     os.utime(source_path, (now - 20, now - 20))
     os.utime(library_path, (now - 10, now - 10))
@@ -79,6 +117,28 @@ def test_second_build_skips_when_output_is_current(
     assert "output is current" in log_text
 
 
+def test_changing_optimize_mode_rebuilds_then_same_mode_skips(
+    isolated_build_paths: tuple[Path, Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _source_path, _build_root, _log_root = isolated_build_paths
+    calls = _fake_successful_zig(monkeypatch)
+
+    default_result = build_add_example()
+    changed_result = build_add_example(optimize_mode="ReleaseSafe")
+    skipped_result = build_add_example(optimize_mode="ReleaseSafe")
+
+    assert default_result.rebuilt is True
+    assert changed_result.rebuilt is True
+    assert skipped_result.rebuilt is False
+    assert len(calls) == 2
+    assert calls[0][calls[0].index("-O") + 1] == "ReleaseFast"
+    assert calls[1][calls[1].index("-O") + 1] == "ReleaseSafe"
+    assert skipped_result.optimize_mode == "ReleaseSafe"
+    log_text = skipped_result.log_path.read_text(encoding="utf-8")
+    assert "build skipped" in log_text
+    assert "optimize_mode: ReleaseSafe" in log_text
+
+
 def test_force_rebuilds_current_output(
     isolated_build_paths: tuple[Path, Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -87,6 +147,9 @@ def test_force_rebuilds_current_output(
     library_path = build_root / "add" / build_module.shared_library_name("add")
     library_path.parent.mkdir(parents=True)
     library_path.write_bytes(b"already built")
+    build_module._write_build_metadata(
+        build_module._metadata_path(library_path), source_path=source_path, optimize_mode="ReleaseFast"
+    )
     now = time.time()
     os.utime(source_path, (now - 20, now - 20))
     os.utime(library_path, (now - 10, now - 10))
@@ -100,9 +163,13 @@ def test_force_rebuilds_current_output(
 
 @pytest.fixture(scope="session")
 def built_add_library() -> Path:
+    if shutil.which("zig") is None:
+        pytest.skip("zig is required to build and load the add example")
     library_path = build_module.BUILD_ROOT / "add" / build_module.shared_library_name("add")
-    if not library_path.exists() or build_module.ADD_SOURCE.stat().st_mtime > library_path.stat().st_mtime:
-        build_add_example()
+    if not build_module._is_output_current(
+        build_module.ADD_SOURCE, library_path, optimize_mode=DEFAULT_OPTIMIZE_MODE
+    ):
+        build_add_example(optimize_mode=DEFAULT_OPTIMIZE_MODE)
     return library_path
 
 
